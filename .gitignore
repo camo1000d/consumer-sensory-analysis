@@ -1,0 +1,17 @@
+# Real data: never tracked (only the demo mock export is kept)
+*.ods
+*.csv
+*.xlsx
+!demo/data/fizz_export_mock.xlsx
+
+# Script-generated outputs
+outputs/
+demo/outputs/
+
+# R / RStudio temporary files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.DS_Store
