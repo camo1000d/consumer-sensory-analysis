@@ -3,11 +3,11 @@
 A **reusable** R pipeline that transforms raw exports from sensory tasting software (FIZZ) into statistical analyses, stakeholder-ready visualizations for non-specialists, and one-page product sheets.
 
 > **All data in this repository is fictional** (5 imaginary products, 120 simulated judges/consumers).  
-> The pipeline was originally developed for a regional agri-food innovation competition organized by a student association: 5 products tasted by ~120 consumers, ranking products from most to least innovative, followed by evaluation questions on liking, repurchase intent, and areas for improvement.
+> This pipeline was developed for Isogone, an agri-food innovation competition run by students of Institut Agro Rennes-Angers: 5 products tasted by ~120 consumers, ranking products from most to least innovative, followed by evaluation questions on liking, repurchase intent, and areas for improvement.
 
 ## The Problem
 
-Comparing 5 very distinct products evaluated by the same consumers in randomized order, and identifying which product is perceived as most innovative, **without over-interpreting** sample noise. Reports must be easily interpretable by participating food companies who are not statisticians.
+Comparing 5 very distinct products evaluated by the same consumers in a balanced, varied order, and identifying which product is perceived as most innovative, **without over-interpreting** sample noise. Reports must be easily interpretable by participating food companies who are not statisticians.
 
 ## What the Pipeline Does
 
