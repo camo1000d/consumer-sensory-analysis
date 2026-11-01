@@ -21,8 +21,11 @@ library(tidyverse)
 # We locate this column and extract the subsequent columns.
 
 normalize <- function(x) str_squish(str_replace_all(x, "[\u2019\u2018]", "'"))
-# FIZZ sometimes prefixes categories with question numbers ("6- Appearance"): strip them
-clean_prefix <- function(x) normalize(str_remove(x, "^\\d+\\s*-\\s+"))
+# FIZZ prefixes categories with the question number ("6- Appearance", "4-Strongly agree"): strip it.
+# (Used for survey answers only, never for demographics such as "15-24 yo".)
+clean_prefix <- function(x) normalize(str_remove(x, "^\\d+\\s*-\\s*"))
+# Matching key: case-, accent- and apostrophe-insensitive, so that "Tout a fait" = "Tout à fait"
+match_key <- function(x) str_to_lower(stringi::stri_trans_general(normalize(x), "Latin-ASCII"))
 
 read_sheet <- function(sheet, anchor, col_names) {
   if (!file.exists(export_file)) stop("File not found: ", export_file)
@@ -45,18 +48,18 @@ choice_cols <- c("pos", "product_name", "code", "date", "judge", "choice")
 
 # Applies a lookup dictionary (keys = FIZZ labels), validating unknown categories
 apply_dict <- function(values, dict, item_name) {
-  keys <- normalize(names(dict))
-  unknowns <- setdiff(unique(values), keys)
+  keys <- match_key(names(dict))
+  unknowns <- unique(values[!(match_key(values) %in% keys)])
   if (length(unknowns) > 0)
     stop("Unknown categories for '", item_name, "': ", paste(unknowns, collapse = " | "),
          "\n  -> please add to config.R (exact labels from FIZZ export).")
-  unname(dict[match(values, keys)])
+  unname(dict[match(match_key(values), keys)])
 }
 
 # ---- 1. Read sheets ---------------------------------------------------------
 app <- read_sheet(sheets[["liking"]], "Sample Pos.",
                   c("pos", "product_name", "code", "date", "judge", "descr", "val")) %>%
-  mutate(code = as.character(code), descr = normalize(descr), val = as.numeric(val))
+  mutate(code = as.character(code), descr = clean_prefix(descr), val = as.numeric(val))
 
 cl <- read_sheet(sheets[["ranking"]], "Sample Pos.",
                  c("pos", "code", "date", "judge", "rank")) %>%
@@ -87,13 +90,13 @@ cat(sprintf("Retained judges: %d | Excluded (incomplete responses or ranking): %
 
 # ---- 3. Build 'judge x product' table ---------------------------------------
 # 3a. Sensory liking scores (one column per attribute)
-ignored_descriptors <- setdiff(unique(app$descr), normalize(names(descriptors)))
+ignored_descriptors <- setdiff(unique(match_key(app$descr)), match_key(names(descriptors)))
 if (length(ignored_descriptors))
   message("Descriptors ignored (absent from config.R): ", paste(ignored_descriptors, collapse = ", "))
 
 app_wide <- app %>%
-  filter(judge %in% complete_judges, descr %in% normalize(names(descriptors))) %>%
-  mutate(descr = unname(descriptors[match(descr, normalize(names(descriptors)))])) %>%
+  filter(judge %in% complete_judges, match_key(descr) %in% match_key(names(descriptors))) %>%
+  mutate(descr = unname(descriptors[match(match_key(descr), match_key(names(descriptors)))])) %>%
   pivot_wider(id_cols = c(judge, code), names_from = descr, values_from = val)
 
 serving_order <- app %>% filter(judge %in% complete_judges) %>% distinct(judge, code, pos) %>% rename(serving_order = pos)

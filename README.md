@@ -21,9 +21,15 @@ FIZZ export (.xlsx / .ods)
 PNG figures · product sheets · statistical test reports
 ```
 
+Outputs (in `<study_folder>/outputs/`): PNG figures, one-page product sheets, and tables, including `key_figures_by_product.csv` (one row per product: rank, significance group, scores, % agreement, perceived innovation, areas for improvement, plus a mean row) to fill in the written reports quickly.
+
 Everything that changes from one study to another (sheet names, response labels, products, plot titles) is isolated in a **single configuration file** (`demo/config.R`): scripts do not need modification for a new edition.
 
 ## Results on Simulated Data
+
+**Who are the consumers?** A one-glance description of the panel (occupation, age, gender), to place at the start of every report so that readers know whose opinion the results represent.
+
+![Consumer panel](images/00_consumer_panel.png)
 
 **Which product is the most innovative?** Mean score and 95% uncertainty margin (bootstrap by judge). Here, Product B comes out on top in 98% of resamples.
 
@@ -57,7 +63,7 @@ Everything that changes from one study to another (sheet names, response labels,
 | Areas for improvement | Frequencies and penalty analysis | Prioritizing product reformulations |
 | Experimental design | 5-product Williams Latin square design (10 sequences) | Balances order and first-order carryover effects |
 
-The data preparation script also verifies that each judge tasted and ranked all products, excludes incomplete judges, and displays the balance across serving positions.
+The data preparation script matches labels regardless of case, accents and question-number prefixes (`4-Strongly agree` = `Strongly agree`), stops with an explicit message listing any unknown label, verifies that each judge tasted and ranked all products, excludes incomplete judges, and displays the balance across serving positions.
 
 ## Core Skills Demonstrated
 

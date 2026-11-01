@@ -5,7 +5,7 @@
 #           (produced by R/01_prepare_data.R)
 #  Outputs: <study_folder>/outputs/figures/  PNG charts for non-specialist readers
 #           <study_folder>/outputs/sheets/   one 1-page product sheet per product
-#           <study_folder>/outputs/tables/   tabular ranking summary
+#           <study_folder>/outputs/tables/   ranking summary, panel summary and key figures per product
 #           console                          statistical test reports
 #
 #  No study-specific hardcoded names: everything is configured in config.R.
@@ -70,6 +70,61 @@ save_plot <- function(g, name, w = 10, h = 6) {
 }
 
 # ==============================================================================
+# 1b. CONSUMER PANEL: who are the judges?
+#     Simple charts to place at the beginning of each report.
+# ==============================================================================
+# Display order and labels: defined in config.R (socio_prof_labels, age_order);
+# otherwise the labels of the export are used as they are.
+if (!exists("socio_prof_labels")) socio_prof_labels <- character(0)
+if (!exists("age_order"))         age_order         <- character(0)
+relabel <- function(x, dict) { y <- unname(dict[x]); ifelse(is.na(y), x, y) }
+
+panel_bars <- function(var, title_text, fixed_order = NULL, labels = NULL) {
+  d <- ranking %>%
+    count(category = .data[[var]], name = "n") %>%
+    mutate(pct = n / sum(n))
+  if (!is.null(labels)) d$category <- relabel(d$category, labels)
+  display_order <- if (is.null(fixed_order)) d$category[order(-d$n)] else intersect(fixed_order, d$category)
+  display_order <- c(display_order, setdiff(d$category, display_order))
+  d %>%
+    mutate(category = factor(category, levels = rev(display_order))) %>%
+    ggplot(aes(category, pct)) +
+    geom_col(fill = "#4C78A8", width = 0.7) +
+    geom_text(aes(label = paste0(percent(pct, accuracy = 1), "  (", n, ")")), hjust = -0.08, size = 4.5) +
+    scale_x_discrete(labels = function(x) str_wrap(x, 34)) +
+    scale_y_continuous(labels = percent, expand = expansion(mult = c(0, 0.45))) +
+    coord_flip() +
+    labs(title = title_text, x = NULL, y = NULL) +
+    theme(axis.text.x = element_blank(), panel.grid.major.x = element_blank())
+}
+
+p_prof   <- panel_bars("socio_prof", "Occupation", labels = socio_prof_labels)
+p_age    <- panel_bars("age",        "Age", fixed_order = age_order)
+p_gender <- panel_bars("gender",     "Gender")
+
+fig_panel <- p_prof / (p_age | p_gender) +
+  plot_annotation(
+    title    = sprintf("Who are the %d consumers?", n_judges),
+    subtitle = "Share of consumers in each group (number of consumers in brackets)",
+    theme = theme(plot.title = element_text(face = "bold", size = 18),
+                  plot.subtitle = element_text(colour = "grey30", size = 13)))
+save_plot(fig_panel, "00_panel", w = 11, h = 8)
+save_plot(p_prof   + labs(title = "Occupation of the consumers"), "00a_panel_occupation", w = 10, h = 5)
+save_plot(p_age    + labs(title = "Age of the consumers"),        "00b_panel_age",        w = 8,  h = 4)
+save_plot(p_gender + labs(title = "Gender of the consumers"),     "00c_panel_gender",     w = 8,  h = 3.5)
+
+# Panel figures, ready to copy into the report text
+panel_summary <- bind_rows(
+  ranking %>% count(variable = "occupation", category = socio_prof) %>% mutate(category = relabel(category, socio_prof_labels)),
+  ranking %>% count(variable = "age",        category = age),
+  ranking %>% count(variable = "gender",     category = gender)) %>%
+  group_by(variable) %>% mutate(pct = round(100 * n / sum(n), 1)) %>% ungroup()
+write_csv(panel_summary, file.path(outputs, "tables", "panel.csv"))
+pct_panel <- function(var, pattern) round(100 * mean(str_detect(str_to_lower(ranking[[var]]), pattern)))
+cat(sprintf("\n===== PANEL: %d consumers | %d%% students | %d%% aged 15-24 | %d%% women =====\n",
+            n_judges, pct_panel("socio_prof", "student"), pct_panel("age", "^15-24"), pct_panel("gender", "^f")))
+
+# ==============================================================================
 # 2. "MOST INNOVATIVE" RANKING -> who wins?
 # ==============================================================================
 ranking_long <- ranking %>%
@@ -94,8 +149,9 @@ cat("Kendall's W concordance coefficient (0 = no agreement, 1 = complete agreeme
     round(unname(fr$statistic) / (n_judges * (K - 1)), 3), "\n")
 
 cat("\n===== Pairwise comparisons (paired Wilcoxon test, Holm correction) =====\n")
-print(pairwise.wilcox.test(ranking_long$rank, ranking_long$product,
-                           paired = TRUE, p.adjust.method = "holm", exact = FALSE))
+pw_rank <- pairwise.wilcox.test(ranking_long$rank, ranking_long$product,
+                                paired = TRUE, p.adjust.method = "holm", exact = FALSE)
+print(pw_rank)
 
 # --- Consumer-level bootstrap (resample JUDGES, not individual ratings) ---
 set.seed(2026)
@@ -383,6 +439,67 @@ fig9  <- profile_heatmap("age",    "Innovation score by consumer age")
 fig10 <- profile_heatmap("gender", "Innovation score by consumer gender")
 save_plot(fig9,  "09_profile_age",    w = 10, h = 5)
 save_plot(fig10, "10_profile_gender", w = 8,  h = 5)
+
+# ==============================================================================
+# 7b. KEY FIGURES PER PRODUCT: one table to consult while writing the reports
+#     File: <study_folder>/outputs/tables/key_figures_by_product.csv
+# ==============================================================================
+chr_prod <- function(d) mutate(d, product = as.character(product))
+
+# Significance groups of the ranking (a, b, ab...): two products sharing a letter are not
+# significantly different (paired Wilcoxon, Holm correction)
+p_mat <- matrix(1, K, K, dimnames = list(product_order, product_order))
+pm <- pw_rank$p.value
+for (i in rownames(pm)) for (j in colnames(pm)) if (!is.na(pm[i, j])) { p_mat[i, j] <- pm[i, j]; p_mat[j, i] <- pm[i, j] }
+rank_letters <- tryCatch(multcompView::multcompLetters(p_mat, threshold = 0.05)$Letters,
+                         error = function(e) setNames(rep(NA_character_, K), product_order))
+
+criterion_code <- setNames(names(criteria), unname(criteria))
+liking_wide <- res_liking %>%
+  transmute(product, code = criterion_code[criterion], score = round(emmean, 2), letters) %>%
+  pivot_wider(names_from = code, values_from = c(score, letters), names_glue = "{.value}_{code}")
+
+intentions_wide <- map_dfr(names(likert_labels), function(v) {
+  responses %>% group_by(product) %>%
+    summarise(question = v, agree = round(100 * mean(.data[[v]] >= 4)),
+              neutral = round(100 * mean(.data[[v]] == 3)),
+              disagree = round(100 * mean(.data[[v]] <= 2)), .groups = "drop")
+}) %>% chr_prod() %>%
+  pivot_wider(names_from = question, values_from = c(agree, neutral, disagree), names_glue = "{question}_{.value}_pct")
+
+innovation_top <- innov_pct %>% chr_prod() %>%
+  group_by(product) %>% arrange(desc(pct), .by_group = TRUE) %>%
+  summarise(innovation_1 = as.character(innovation[1]), innovation_1_pct = round(100 * pct[1]),
+            innovation_2 = as.character(innovation[2]), innovation_2_pct = round(100 * pct[2]), .groups = "drop")
+
+improvement_top <- improv %>% chr_prod() %>% filter(var != "improve_none") %>%
+  group_by(product) %>% arrange(desc(pct), .by_group = TRUE) %>%
+  summarise(improvement_1 = as.character(point[1]), improvement_1_pct = round(100 * pct[1]),
+            improvement_2 = as.character(point[2]), improvement_2_pct = round(100 * pct[2]), .groups = "drop")
+no_improvement <- improv %>% chr_prod() %>% filter(var == "improve_none") %>%
+  transmute(product, none_improvement_pct = round(100 * pct))
+
+key_figures <- df_score %>%
+  arrange(desc(score)) %>% mutate(rank = row_number()) %>%
+  transmute(product, rank, innovation_score = round(score, 2), ci_lower = round(lower_ci, 2),
+            ci_upper = round(upper_ci, 2), p_first_pct = round(100 * p_first)) %>%
+  left_join(chr_prod(rank_summary) %>% transmute(product, mean_rank = round(mean_rank, 2)), by = "product") %>%
+  mutate(ranking_group = unname(rank_letters[product]), n_judges = n_judges) %>%
+  left_join(chr_prod(liking_wide), by = "product") %>%
+  left_join(intentions_wide, by = "product") %>%
+  left_join(innovation_top, by = "product") %>%
+  left_join(improvement_top, by = "product") %>%
+  left_join(no_improvement, by = "product") %>%
+  arrange(rank)
+# Last row: average over the products, to situate each product
+average_row <- key_figures %>%
+  summarise(across(c(starts_with("score_"), matches("_(agree|neutral|disagree)_pct$"), any_of("none_improvement_pct")),
+                   ~ round(mean(.x, na.rm = TRUE), 2))) %>%
+  mutate(product = sprintf("Mean of the %d products", K))
+key_figures <- bind_rows(mutate(key_figures, product = as.character(product)), average_row)
+write_csv(key_figures, file.path(outputs, "tables", "key_figures_by_product.csv"))
+cat("\n===== KEY FIGURES (rank, score, significance group) =====\n")
+print(select(key_figures, product, rank, innovation_score, p_first_pct, ranking_group), n = Inf)
 
 # ==============================================================================
 # 8. PRODUCT SHEETS (1 page per product)
